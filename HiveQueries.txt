@@ -1,0 +1,80 @@
+==========================================================
+------->Find list of Airports operating in the Country India
+
+$ hdfs dfs -put /home/edureka/Desktop/airports_mod.dat hdfs:///user/external/airport.dat      
+
+Hive>create external table airports (airportid string, name string, city string, country string, iata_cd char(2), icao_cd char(4), latitude decimal(10,6), longitude decimal(10,6), altitude int, timezone decimal(1,1), dst char(1), timezone_format string) 
+row format delimited fields terminated by ','
+location 'hdfs:///user/external';
+
+Hive>create table airports_partition (airportid string, name string, city string, iata_cd char(2), icao_cd char(4), latitude decimal(10,6), longitude decimal(10,6), altitude int, timezone decimal(1,1), dst char(1), timezone_format string) 
+partitioned by (country STRING)
+row format delimited fields terminated by ',';
+
+Hive>set hive.exec.dynamic.partition=true;
+
+Hive>set hive.exec.dynamic.partition.mode=nonstrict;
+
+Hive>set hive.exec.max.dynamic.partitions.pernode=250; 
+(Since the no. Of countries in the dataset is around 244 and the max. No. Of partitions by default is 100, I changed this to create 250 partitions so as to create partition for all the countries)
+
+Hive>from airports apt
+insert overwrite table airports_partition partition(country)
+select apt.airportid , apt.name , apt.city , apt.iata_cd , apt.icao_cd , apt.latitude , apt.longitude , apt.altitude , apt.timezone , apt.dst , apt.timezone_format, apt.country distribute by country;
+
+Hive>select airportid, name from airports_partition where country='India';
+
+
+==========================================================
+------->Find the list of Airlines having zero stops
+
+$ hdfs dfs -mkdir /user/external_routes
+$ hdfs dfs -put /home/edureka/Desktop/routes.dat hdfs:///user/external_routes/routes.dat  
+
+hive> create external table routes(aln_cd char(3), id string, srcapt_cd char(4), src_apt_id string, destapt_cd char(4), dest_apt_id string, codeshare char(1), num_stops int, equipment char(3))
+row format delimited fields terminated by ','
+location 'hdfs:///user/external_routes';
+
+NOTE: Below query Using the concept of Left Semi Join 
+hive> select id, name from final_Airlines A where A.id in (Select R.id from routes R where R.num_stops=0);
+
+
+============================================================
+------->List of Airlines operating with code share
+
+hive> select a.id, a.name, rts.Codeshare ruts from final_Airlines a, routes rts where a.id in (Select R.id from routes R where R.codeshare='Y');
+
+
+=============================================================
+------->Which country (or) territory having highest Airports
+
+hive> select country, count(*) count_airport from airports group by country order by count_airport desc limit 1;
+
+
+==============================================================
+-------->Find the list of Active Airlines in United states
+
+NOTE : Below is used to execute all the queries in single go i.e. Hive script.
+$ hive -f /home/edureka/Desktop/airlinesparte.sql 
+
+All queries in airlinesparte.sql are as below:
+
+hive>create table Final_airlines(id string,name string, alias string,iata_cd char(2), icao_cd char(3), callsign string, country string, active_status string
+comment 'This is Airlines table') row format delimited fields terminated by ',';
+
+hive>load data local inpath '/home/edureka/Desktop/Final_airlines' overwrite into table Final_airlines; 
+
+hive>create table airlines_bkt(id string,name string, alias string,iata_cd char(2), icao_cd char(3), callsign string, active_status string)
+partitioned by (country STRING) clustered by(active_status) sorted by(active_status) into 2 buckets row format delimited fields terminated by ',';
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.enforce.bucketing = true; 
+
+from Final_airlines ar
+insert overwrite table airlines_bkt partition(country='United States')
+select ar.id ,ar.name,ar.alias,ar.iata_cd,ar.icao_cd,ar.callsign,ar.active_status where country='United States';
+
+select * from airlines_bkt
+tablesample(bucket 2 out of 2 on active_status);
+=================================================================
